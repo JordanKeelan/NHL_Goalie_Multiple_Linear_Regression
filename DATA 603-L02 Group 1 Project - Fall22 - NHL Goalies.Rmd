@@ -1,0 +1,572 @@
+---
+title: "Project: December 13, 2022"
+output: html_notebook
+---
+
+```{r Library}
+library(dplyr)  
+library(ggplot2)  
+library(stats)
+library(olsrr)
+library(leaps)
+library(GGally)
+library(lubridate)
+library(stringr)
+library(tidyr)
+library(mosaic)
+library(agricolae)
+library(lmtest)
+library(mctest)
+library(MASS)
+library(ggpubr)
+```
+
+```{r}
+setwd('.')
+```
+
+# Do winning % and goalie save % have a relationship?, in other words, why are we doing this?
+```{r}
+teams <- read.csv('./WinningPercentage.csv', header = TRUE)
+head(teams,4)
+```
+
+```{r}
+teammodel = lm(Points~Save, data = teams)
+summary(teammodel)
+```
+
+```{r}
+coef(teammodel)
+confint(teammodel)
+```
+
+```{r}
+ggplot(teams, aes(x = Save, y = Points)) +
+  geom_point(size = 1)
+```
+
+$$
+Points\ Percentage = 4.407Save\ Percentage - 3.449
+$$
+
+$$
+\begin{aligned}
+\mbox{The estimated model for Points Percentage is:}\\
+\hat{PointPCT}=- 3.449 + 4.407 SAVEPCT
+\end{aligned}
+$$
+
+```{r}
+teamfunction=function(x){4.407*x-3.449}
+
+ggplot(data=teams,mapping= aes(x=Save,y=Points))+geom_point()+
+stat_function(fun=teamfunction,geom="line")+ggtitle("Team Points Percentage vs. Team Save Percentage (1997/98-2018/19)")+labs(y= "Team Points Percentage", x = "Team Save Percentage")
+```
+
+# Main dataset model build and analysis
+```{r}
+goalies = read.csv("./goalies_merged.csv", header = TRUE)
+head(goalies, 10)
+tail(goalies,10)
+```
+### output of unique values for (factor)columns pre-wrangling
+```{r}
+unique(goalies$ShootsCatches_x)
+unique(goalies$Country)
+unique(goalies$Season)
+length(unique(goalies$Country))
+table(unlist(goalies$Country))
+unique(goalies$DraftYear)
+unique(goalies$DraftRound)
+```
+
+### Setting data types and data manipulation: 
+```{r}
+goalies = subset(goalies, select = c('ShootsCatches_x','Country','HeightInches','GamesStarted','GamesPlayed_y','WeightPounds','Season','DOB','DraftYear','DraftRound','FirstSeason','SavePct','TimeOnIce','Shutouts_y','PenaltyMinutes'))
+
+## Rookie year calculation 
+RookieYear = numeric(length(goalies$FirstSeason))
+for (j in 1:length(goalies$FirstSeason))
+{
+  RookieYear[j] = c(as.integer(strtrim(goalies$FirstSeason[j], 4)))
+}
+
+goalies$RookieYear = RookieYear
+
+
+## Years in minors calculation
+goalies$DraftYear = as.integer(goalies$DraftYear)
+YIM = numeric(length(goalies$FirstSeason))
+for (k in 1:length(goalies$FirstSeason))
+{
+  YIM[k] = c(goalies$RookieYear[k] - goalies$DraftYear[k])
+}
+
+goalies$YIM = YIM
+
+
+## Find age 
+age = numeric(length(goalies$DOB))
+for (p in 1:length(goalies$DOB))
+{
+       age[p] = as.integer(strtrim(goalies$Season[p], 4)) - as.integer(strtrim(goalies$DOB[p], 4))
+}
+
+goalies$age = age
+
+
+## Creates factor variable for DraftCategory [Round 1/2, rounds 3/4, Later Round, Undrafted]
+goalies <- goalies %>%
+  mutate(DraftCategory = case_when(
+    (goalies$DraftRound == "--") ~ "undrafted",
+    (goalies$DraftRound < 3) ~ "early",
+    (goalies$DraftRound < 5) ~ "middle",
+    (goalies$DraftRound > 4) ~ "late"
+    ))
+
+
+## TOI in minutes calculation (time on ice)
+goalies <- goalies %>%
+   mutate(TOI = as.integer(str_split(goalies$TimeOnIce, ":", simplify = TRUE)[ , 1]))
+
+## Years since drafted calculation: Season - draft year 
+goalies <- goalies %>%
+  mutate(YSD = as.integer(strtrim(goalies$Season, 4)) -  goalies$DraftYear)
+
+## Years in NHL calculation
+goalies <- goalies %>%
+  mutate(YrsNHL = as.integer(strtrim(goalies$Season, 4)) -  as.integer(goalies$FirstSeason))
+
+## Start percentage calculation
+goalies <- goalies %>%
+  mutate(StartPct = goalies$GamesStarted / goalies$GamesPlayed_y)
+
+## Country of origin factor variable creation [CAN, USA, SWE, FIN, OTHER]
+for (i in 1:length(goalies$Country))
+{
+    if (goalies$Country[i] == "USA") {goalies$Country[i] = "USA"
+    }  else if (goalies$Country[i] == "CAN") {goalies$Country[i] = "CAN"
+    }  else if (goalies$Country[i] == "FIN") {goalies$Country[i] = "FIN"
+    }  else if (goalies$Country[i] == "SWE") {goalies$Country[i] = "SWE"
+    } else {goalies$Country[i] = "OTHER"}
+}
+
+## Era factor variable creation [1,2,3]
+goalies <- goalies %>%
+  mutate(Era = case_when(
+    (as.integer(strtrim(goalies$Season, 4)) < 1996) ~ "4",
+    (as.integer(strtrim(goalies$Season, 4)) > 1995 & as.integer(strtrim(goalies$Season, 4)) < 2004) ~ "1",
+    (as.integer(strtrim(goalies$Season, 4)) > 2003 & as.integer(strtrim(goalies$Season, 4)) < 2012) ~ "2",
+    (as.integer(strtrim(goalies$Season, 4)) > 2011 & as.integer(strtrim(goalies$Season, 4)) < 2019) ~ "3",
+    (as.integer(strtrim(goalies$Season, 4)) > 2018) ~ "5"
+    ))
+
+
+## to remove: any year before 1997, 2012-2013, and greater than 2018 
+goalies <- goalies[goalies$Era %in% c("1","2","3"), ]
+goalies %>% drop_na()
+goalies
+
+## to turn svpct from proportion to percentage
+goalies$SavePct = goalies$SavePct*100
+
+## for reference, lockout 1994-95 (48 games played), lockout 2004-05 (0 games played), lockout 2012-13 (48 games) seasons, covid 2020-21 (56 games)
+```
+
+###output of unique values for (factor)columns and calculated columns post-wrangling
+```{r}
+unique(goalies$ShootsCatches_x)
+unique(goalies$Country)
+table(unlist(goalies$Country))
+unique(goalies$Season)
+unique(goalies$DraftYear)
+unique(goalies$DraftRound)
+unique(goalies$DraftCategory)
+unique(goalies$YIM)
+unique(goalies$RookieYear)
+unique(goalies$Era)
+unique(goalies$YSD)
+unique(goalies$age)
+```
+
+###Fav stats of "wrangled" dataset: 
+```{r}
+favstats(goalies$Ht)
+favstats(goalies$Wt)
+favstats(goalies$Round)
+favstats(goalies$TOI)
+favstats(goalies$SavePct)
+colnames(goalies)
+
+```
+
+###we want to trim the data to remove goalies with small amounts of games played so they do no influence the model (if they were a temporary replacement, only for 1 game, etc)
+```{r}
+favstats(goalies$GamesPlayed_y)
+favstats(goalies$GamesStarted)
+```
+
+###explore the data
+```{r}
+ggplot(data=goalies,aes(GamesPlayed_y,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(GamesStarted,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(TOI,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+
+ggplot(data=goalies,aes(GamesPlayed_y,SavePct, color = Country)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(GamesStarted,SavePct, color = Country)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(TOI,SavePct, color = Country)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+
+ggplot(data=goalies,aes(GamesPlayed_y,SavePct, color = DraftCategory)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(GamesStarted,SavePct, color = DraftCategory)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies,aes(TOI,SavePct, color = DraftCategory)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+```
+
+$$
+\begin{aligned}
+
+\mbox{We can calcuate that the MEAN [GamesPlayed] = 25}\\
+\mbox{We can calculate the AVERAGE of [GamesStarted] = 26.9}\\
+\mbox{In order to be elgibable for the Vezina, a goalie must start at least 25 games}\\
+\mbox{Set our minumum [GamesPlayed] to determine NHL-starting goalies = 25 --> trim data where [GamesPlayed] > 24}\\
+
+\end{aligned}
+$$
+
+###trim games played to >=25 and convert savepct to >1 numeric value (*100)
+```{r}
+## keep all rows games played 25 or more
+goalies_new <- subset(goalies,GamesPlayed_y > 24 )
+
+rownames(goalies_new) <- seq(length=nrow(goalies_new))
+
+##check new DF
+head(goalies_new, 10)
+##check all unqiue values in modified column gamesplayed 
+unique(goalies_new$GamesPlayed_y)
+## goalies_new$SavePct = goalies_new$SavePct*100
+## goalies_new
+```
+
+###recheck plots from before 
+```{r}
+ggplot(data=goalies_new,aes(GamesPlayed_y,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies_new,aes(GamesStarted,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies_new,aes(TOI,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+
+```
+$$
+H_0: \beta_i = 0\\
+H_A: \beta_i \neq0\\
+i=predictor\  variables
+$$
+
+$$
+\begin{aligned}
+H_0:\beta_1 =\beta_2 = \beta_i = 0 \\
+H_a:\mbox{at least one }\beta_i\mbox{ is not zero } \\
+i=x, y, z, ...[predictor\ variables] \\
+\alpha = 0.05  
+
+\end{aligned}
+$$
+
+###Creating the full-model with the original DF with all data to check
+```{r}
+colnames(goalies)
+full.goalies = lm(SavePct ~ factor(ShootsCatches_x) + HeightInches + WeightPounds + factor(Country) + factor(DraftCategory) + YSD + age + YIM + factor(Era) + StartPct + TOI + Shutouts_y + PenaltyMinutes, data = goalies)
+summary(full.goalies)
+
+```
+
+###Re-run the model with new df with gamesplayed >= 25
+```{r}
+colnames(goalies_new)
+full.goalies_new = lm(SavePct ~ factor(ShootsCatches_x) + HeightInches + WeightPounds + factor(Country) + factor(DraftCategory) + YSD + age + YIM + factor(Era) + StartPct + TOI + Shutouts_y + PenaltyMinutes, data = goalies_new)
+summary(full.goalies_new)
+
+##runs to here
+
+```
+
+###build best first order model based on pvalue > 0.05 variables
+```{r}
+goalies.additive.only = lm(SavePct ~ factor(Era)+ Shutouts_y + PenaltyMinutes, data = goalies_new)
+summary(goalies.additive.only)
+```
+
+###equation for first order "best" model - OLD
+$$
+\begin{aligned}
+\widehat{SVPCT}_i&=
+\begin{cases} 
+89.8523+0.2634Shutouts-0.0069PenaltyMinutes & \mbox{if } i^{th}\mbox{  ERA is 1 (1996/97 - 2003/04)} \\
+90.0577+0.2634Shutouts-0.0069PenaltyMinutes & \mbox{if } i^{th}\mbox{ ERA is 2 (2005/06 - 2011/12)}\\
+90.6449+0.2634Shutouts-0.0069PenaltyMinutes & \mbox{if } i^{th}\mbox{ERA is 3 (2013/14 - 2018/19)}
+\end{cases}
+\end{aligned}
+$$
+
+###rebuild 1st order model drop p > 0.05
+```{r}
+goalies.additive.only2 = lm(SavePct ~ factor(Era)+ Shutouts_y, data = goalies_new)
+summary(goalies.additive.only2)
+```
+
+###equation for first order "best" model
+$$
+\begin{aligned}
+\widehat{SVPCT}_i&=
+\begin{cases} 
+89.8055+0.2601Shutouts & \mbox{if } i^{th}\mbox{  ERA is 1 (1996/97 - 2003/04)} \\
+90.0798+0.2601Shutouts & \mbox{if } i^{th}\mbox{ ERA is 2 (2005/06 - 2011/12)}\\
+90.1156+0.2601Shutouts & \mbox{if } i^{th}\mbox{ERA is 3 (2013/14 - 2018/19)}
+\end{cases}
+\end{aligned}
+$$
+
+```{r}
+ggplot(data=goalies_new,aes(GamesPlayed_y,TOI, color = DraftCategory)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies_new,aes(WeightPounds,HeightInches, color = Country)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies_new,aes(Shutouts_y,StartPct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+ggplot(data=goalies_new,aes(Shutouts_y,GamesPlayed_y, color = Country)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
+
+```
+
+```{r}
+##colnames(goalies_new)
+full.goalies_2nd = lm(SavePct ~ (factor(ShootsCatches_x) + HeightInches + WeightPounds + factor(Country) + factor(DraftCategory) + YSD + age + YIM + factor(Era) + StartPct + TOI + Shutouts_y + PenaltyMinutes)^2, data = goalies_new)
+summary(full.goalies_2nd)
+
+```
+
+```{r}
+goalies.interact = lm(SavePct ~ Shutouts_y + factor(Era) + age + StartPct + factor(Country) + factor(DraftCategory) + YIM + YSD + WeightPounds + TOI+ factor(ShootsCatches_x)+ factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):factor(DraftCategory) + age:WeightPounds + YSD:WeightPounds + factor(Country):WeightPounds + factor(ShootsCatches_x):WeightPounds + TOI:Shutouts_y + StartPct:Shutouts_y, data = goalies_new)
+summary(goalies.interact)
+```
+
+```{r}
+goalies.interact.2 = lm(SavePct ~ Shutouts_y + factor(Era) + age + StartPct + factor(Country) + factor(DraftCategory) + YIM + YSD + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):factor(DraftCategory) + age:WeightPounds + YSD:WeightPounds + factor(Country):WeightPounds + TOI:Shutouts_y + Shutouts_y:StartPct, data = goalies_new)
+summary(goalies.interact.2)
+```
+
+```{r}
+goalies.interact.3 = lm(SavePct ~ Shutouts_y + factor(Era) + age + StartPct + factor(Country) + factor(DraftCategory) + YIM + YSD + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):factor(DraftCategory) + YSD:WeightPounds + factor(Country):WeightPounds + TOI:Shutouts_y + Shutouts_y:StartPct, data = goalies_new)
+summary(goalies.interact.3)
+```
+
+```{r}
+goalies.interact.4 = lm(SavePct ~ Shutouts_y + factor(Era) + StartPct + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):factor(DraftCategory) + factor(Country):WeightPounds + TOI:Shutouts_y + Shutouts_y:StartPct, data = goalies_new)
+summary(goalies.interact.4)
+```
+
+```{r}
+goalies.interact.5 = lm(SavePct ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):factor(DraftCategory) + factor(Country):WeightPounds + TOI:Shutouts_y, data = goalies_new)
+summary(goalies.interact.5)
+```
+
+```{r}
+goalies.interact.final = lm(SavePct ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):WeightPounds + TOI:Shutouts_y, data = goalies_new)
+summary(goalies.interact.final)
+```
+
+```{r}
+coefficients(goalies.interact.final)
+```
+
+###run the VIF test on the primary terms in the interaction model
+```{r}
+##VIF test
+goalies.maineffects = lm(SavePct ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI, data = goalies_new)
+imcdiag(goalies.maineffects, method = "VIF")
+```
+###No multicollinearity in the main predictor variables
+
+
+###test our model assumptions
+```{r}
+ggpairs(goalies.interact.final, lower = list(continuous = "smooth_loess", combo = "facethist", discrete = "facetbar", na = "na"))
+```
+###No higher-order terms - test assumptions
+
+
+###Checking for conditions: 
+```{r}
+best.model <- goalies.interact.final
+
+###### Plot for normality 
+ggplot(best.model, aes(x=.fitted, y=.resid)) + geom_point() +geom_smooth() + geom_hline(yintercept = 0)
+
+###### Check Equal Variance Assumption by graphs and the Breusch-Pagan test. If you detect a trend, how would you like to transform the predictors in the model?
+bptest(best.model)
+
+###### Shapiro-Wilk normality test also confirms that the residuals are normally distributed if the p-value is larger than the determined alpha value
+shapiro.test(residuals(best.model))
+
+ggplot(data=best.model, aes(residuals(best.model))) + geom_histogram(breaks = seq(-5,5,by=.3), col="red", fill="blue") + labs(title="Histogram for residuals") + labs(x="residuals", y="Count")
+
+ggplot(best.model, aes(sample=residuals(best.model))) + stat_qq() + stat_qq_line()
+
+###### VIF test to verify there is no collinearity was completed on the main additive variables and no multicollinearity was found.
+
+
+
+###### Looking for outliers: 
+## Residuals vs Leverage plot
+plot(best.model,which=5)
+
+## Cooks Distance
+plot(best.model,pch=18,col="red",which=c(4))
+
+## cooksD <- cooks.distance(best.model)
+## influencial <- cooksD[(cooksD > (4/length(goalies_new$SavePct)))]
+## influencial
+
+## Leverage Points. Must run this format with the "run chunk" button 
+p = length(coef(best.model))
+n = nrow(goalies_new)
+lev = hatvalues(best.model)
+
+##plot(rownames(goalies_new), lev)
+##abline(h = 2 *p/n, lty = 1)
+##abline(h = 3 *p/n, lty = 1)
+
+outlier3p = lev[lev>(3*p/n)]
+outlier3p
+
+outlier2p = lev[lev>(2*p/n)]
+outlier2p
+
+```
+
+```{r}
+Outliers_3p <- c(241,242,367,368,384,385,413,414,480,529,530,531,532,533,583,675,678,679,802,803,804,805,806,807,808,809,903)
+Outliers_2p <- c(61,105,240,241,242,349,351,352,354,355,362,364,366,367,368,384,385,386,387,413,414,480,485,529,530,531,532,533,549,550,551,552,555,556,557,558,559,560,561,562,582,583,615,618,619,620,671,672,673,674,675,678,679,721,726,739,740,741,742,743,744,745,746,747,772,773,774,775,776,777,778,779,780,781,802,803,804,805,806,807,808,809,813,814,857,871,872,901,902,903,904,905,906)
+```
+
+```{r}
+goalies_no_outliers <- goalies_new[-Outliers_3p,]
+goalies_no_outliers
+```
+
+```{r}
+goalies.interact.final.no_outliers = lm(SavePct ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI +  factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):WeightPounds + TOI:Shutouts_y, data = goalies_no_outliers)
+summary(goalies.interact.final.no_outliers)
+```
+
+```{r}
+best.model <- goalies.interact.final.no_outliers
+
+###### Plot for normality 
+ggplot(best.model, aes(x=.fitted, y=.resid)) + geom_point() +geom_smooth() + geom_hline(yintercept = 0)
+
+###### Check Equal Variance Assumption by graphs and the Breusch-Pagan test. If you detect a trend, how would you like to transform the predictors in the model?
+bptest(best.model)
+
+###### Shapiro-Wilk normality test also confirms that the residuals are normally distributed if the p-value is larger than the determined alpha value
+shapiro.test(residuals(best.model))
+
+ggplot(data=best.model, aes(residuals(best.model))) + geom_histogram(breaks = seq(-5,5,by=.3), col="red", fill="blue") + labs(title="Histogram for residuals") + labs(x="residuals", y="Count")
+
+ggplot(best.model, aes(sample=residuals(best.model))) + stat_qq() + stat_qq_line()
+```
+
+```{r}
+bc_goalies = boxcox(best.model, lambda=seq(0,20))
+```
+
+```{r}
+bestlambda_goalie = bc_goalies$x[which(bc_goalies$y==max(bc_goalies$y))]
+bestlambda_goalie
+```
+
+```{r}
+bcmodel_goalies = lm((((SavePct^bestlambda_goalie)-1)/bestlambda_goalie) ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI + factor(DraftCategory):factor(Era) + factor(DraftCategory):YIM + factor(Country):factor(Era) + factor(Country):WeightPounds + TOI:Shutouts_y, data = goalies_no_outliers)
+
+summary(bcmodel_goalies)
+```
+
+```{r}
+bptest(bcmodel_goalies)
+shapiro.test(residuals(bcmodel_goalies))
+```
+
+```{r}
+best.model <- bcmodel_goalies
+
+###### Plot for normality 
+ggplot(best.model, aes(x=.fitted, y=.resid)) + geom_point() +geom_smooth() + geom_hline(yintercept = 0)
+
+###### Check Equal Variance Assumption by graphs and the Breusch-Pagan test. If you detect a trend, how would you like to transform the predictors in the model?
+bptest(best.model)
+
+###### Shapiro-Wilk normality test also confirms that the residuals are normally distributed if the p-value is larger than the determined alpha value
+shapiro.test(residuals(best.model))
+
+ggplot(data=best.model, aes(residuals(best.model))) + geom_histogram(breaks = seq(-4e19,4e19,by=5e18), col="red", fill="blue") + labs(title="Histogram for residuals") + labs(x="residuals", y="Count")
+
+ggplot(best.model, aes(sample=residuals(best.model))) + stat_qq() + stat_qq_line()
+
+```
+### Model Prediction test 
+```{r}
+head(goalies_no_outliers, 100)
+
+predict_data = data.frame(Shutouts_y = 7 ,               ## 0 to 13
+                            Era = "1"  ,                 ## 1, 2, 3
+                            Country = "USA" ,            ## "OTHER" "CAN"   "USA"   "FIN"   "SWE"  
+                            DraftCategory = "early" ,    ## "late"   "early"  "middle" NA  
+                            YIM = 0 ,                    ## 3  4  1  2 NA  0  7  6  5  8
+                            WeightPounds = 210 ,         ## 165 to 238
+                            TOI = 3542)                  ## 1012 to 4696
+
+
+S.V <- predict(bcmodel_goalies, predict_data, interval="predict")      ## Box Cox Model
+(S.V * bestlambda_goalie +1 ) ^ {1/bestlambda_goalie}                  ## Box Cox Model Units Converted
+
+predict(goalies.interact.final.no_outliers, predict_data, interval="predict")  ## Interactive Model (no Box Cox) 
+
+
+##plot(bcmodel_goalies, which=1)
+
+```
+
+## Model prediction distribution visualizations generated from dataset entries
+
+### fits SavePct value to every entry, sorry for the Warning output 
+```{r}
+fit <- list()
+output <- list()
+for (i in seq_along(goalies_new$SavePct))
+{
+  predict_data[[i]] <- data.frame(Shutouts_y = goalies_new$Shutouts_y[i],
+                            Era = goalies_new$Era[i],
+                            Country = goalies_new$Country[i], 
+                            DraftCategory = goalies_new$DraftCategory[i], 
+                            YIM = goalies_new$YIM[i],                    
+                            WeightPounds = goalies_new$WeightPounds[i],         
+                            TOI = goalies_new$TOI[i])
+  S.V <- predict(bcmodel_goalies, predict_data[[i]], interval="predict")
+  S.V <- (S.V * bestlambda_goalie +1 ) ^ {1/bestlambda_goalie}
+  goalies_new$SavePct.Calc[i] = S.V
+}
+```
+
+### visualize distributions
+```{r}
+favstats(goalies_new$SavePct)
+favstats(goalies_new$SavePct.Calc)
+ggqqplot(goalies_new$SavePct.Calc, title="Normal Plot of Predicted SavePct", ylab="Predicted SavePct (%)")
+ggqqplot(goalies_new$SavePct, title="Normal Plot of Actual SavePct", ylab="Actual SavePct (%)")
+```
+
+
+
+
+
+
+
+
+
+
+
