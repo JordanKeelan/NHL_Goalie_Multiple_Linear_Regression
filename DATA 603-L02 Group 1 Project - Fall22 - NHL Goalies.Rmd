@@ -3,6 +3,8 @@ title: "Project: December 13, 2022"
 output: html_notebook
 ---
 
+# Modeling Goalie Save Percentages using Individual Player Attributes
+
 ```{r Library}
 library(dplyr)  
 library(ggplot2)  
@@ -21,56 +23,59 @@ library(MASS)
 library(ggpubr)
 ```
 
+## Project Rationale
+
+As justification for our analysis, we create a linear model demonstrating that team point percentage increases with goalie save percentage. Teams have a strong incentive to seek out strategies to identify goalies with characteristics that could lead to a high save percentage.
+
 ```{r}
+# set the working directory to pwd
 setwd('.')
-```
 
-# Do winning % and goalie save % have a relationship?, in other words, why are we doing this?
-```{r}
+# read the csv file 'WinningPercentage.csv' and assign it to the variable 'teams'
 teams <- read.csv('./WinningPercentage.csv', header = TRUE)
+
+# display the first 4 rows of the dataframe 'teams'
 head(teams,4)
-```
 
-```{r}
+# create a linear model with the variable 'Points' as the response variable and 'Save' as the predictor
 teammodel = lm(Points~Save, data = teams)
+
+# display a summary of the linear model
 summary(teammodel)
-```
 
-```{r}
+# display the coefficients of the linear model
 coef(teammodel)
+
+# display the confidence intervals of the linear model coefficients
 confint(teammodel)
-```
 
-```{r}
-ggplot(teams, aes(x = Save, y = Points)) +
-  geom_point(size = 1)
-```
-
-$$
-Points\ Percentage = 4.407Save\ Percentage - 3.449
-$$
-
-$$
-\begin{aligned}
-\mbox{The estimated model for Points Percentage is:}\\
-\hat{PointPCT}=- 3.449 + 4.407 SAVEPCT
-\end{aligned}
-$$
-
-```{r}
+# create a function that represents the line of best fit
 teamfunction=function(x){4.407*x-3.449}
 
-ggplot(data=teams,mapping= aes(x=Save,y=Points))+geom_point()+
-stat_function(fun=teamfunction,geom="line")+ggtitle("Team Points Percentage vs. Team Save Percentage (1997/98-2018/19)")+labs(y= "Team Points Percentage", x = "Team Save Percentage")
+# create a scatter plot with 'Save' on the x-axis and 'Points' on the y-axis
+# and add the line of best fit using the 'teamfunction'
+ggplot(data=teams,mapping= aes(x=Save,y=Points))+
+  geom_point()+
+  stat_function(fun=teamfunction,geom="line")+
+  ggtitle("Team Points Percentage vs. Team Save Percentage (1997/98-2018/19)")+
+  labs(y= "Team Points Percentage", x = "Team Save Percentage")
 ```
 
-# Main dataset model build and analysis
+$$
+\mbox{The estimated model for Points Percentage is:}\\
+\hat{PointPCT}=- 3.449 + 4.407 SAVEPCT
+$$
+
+## Main Dataset Modeling and Analysis
+
 ```{r}
 goalies = read.csv("./goalies_merged.csv", header = TRUE)
 head(goalies, 10)
 tail(goalies,10)
 ```
+
 ### output of unique values for (factor)columns pre-wrangling
+
 ```{r}
 unique(goalies$ShootsCatches_x)
 unique(goalies$Country)
@@ -81,7 +86,8 @@ unique(goalies$DraftYear)
 unique(goalies$DraftRound)
 ```
 
-### Setting data types and data manipulation: 
+### Setting data types and data manipulation:
+
 ```{r}
 goalies = subset(goalies, select = c('ShootsCatches_x','Country','HeightInches','GamesStarted','GamesPlayed_y','WeightPounds','Season','DOB','DraftYear','DraftRound','FirstSeason','SavePct','TimeOnIce','Shutouts_y','PenaltyMinutes'))
 
@@ -175,6 +181,7 @@ goalies$SavePct = goalies$SavePct*100
 ```
 
 ###output of unique values for (factor)columns and calculated columns post-wrangling
+
 ```{r}
 unique(goalies$ShootsCatches_x)
 unique(goalies$Country)
@@ -190,7 +197,8 @@ unique(goalies$YSD)
 unique(goalies$age)
 ```
 
-###Fav stats of "wrangled" dataset: 
+###Fav stats of "wrangled" dataset:
+
 ```{r}
 favstats(goalies$Ht)
 favstats(goalies$Wt)
@@ -202,12 +210,14 @@ colnames(goalies)
 ```
 
 ###we want to trim the data to remove goalies with small amounts of games played so they do no influence the model (if they were a temporary replacement, only for 1 game, etc)
+
 ```{r}
 favstats(goalies$GamesPlayed_y)
 favstats(goalies$GamesStarted)
 ```
 
 ###explore the data
+
 ```{r}
 ggplot(data=goalies,aes(GamesPlayed_y,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
 ggplot(data=goalies,aes(GamesStarted,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
@@ -224,16 +234,14 @@ ggplot(data=goalies,aes(TOI,SavePct, color = DraftCategory)) + geom_point(alpha=
 
 $$
 \begin{aligned}
-
-\mbox{We can calcuate that the MEAN [GamesPlayed] = 25}\\
-\mbox{We can calculate the AVERAGE of [GamesStarted] = 26.9}\\
-\mbox{In order to be elgibable for the Vezina, a goalie must start at least 25 games}\\
-\mbox{Set our minumum [GamesPlayed] to determine NHL-starting goalies = 25 --> trim data where [GamesPlayed] > 24}\\
-
+&\mbox{We can calcuate that the MEAN [GamesPlayed] = 25}\\
+&\mbox{We can calculate the AVERAGE of [GamesStarted] = 26.9}\\
+&\mbox{In order to be elgibable for the Vezina, a goalie must start at least 25 games}\\
+&\mbox{Set our minumum [GamesPlayed] to determine NHL-starting goalies = 25 --> trim data where [GamesPlayed] > 24}\\
 \end{aligned}
 $$
+### Trim games played to \>=25 and convert savepct to \>1 numeric value (\*100)
 
-###trim games played to >=25 and convert savepct to >1 numeric value (*100)
 ```{r}
 ## keep all rows games played 25 or more
 goalies_new <- subset(goalies,GamesPlayed_y > 24 )
@@ -248,30 +256,34 @@ unique(goalies_new$GamesPlayed_y)
 ## goalies_new
 ```
 
-###recheck plots from before 
+### Recheck plots from before
+
 ```{r}
 ggplot(data=goalies_new,aes(GamesPlayed_y,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
 ggplot(data=goalies_new,aes(GamesStarted,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
 ggplot(data=goalies_new,aes(TOI,SavePct, color = Era)) + geom_point(alpha=0.5, size=2)+ geom_smooth(method = "lm", se = FALSE)
 
 ```
+
 $$
-H_0: \beta_i = 0\\
-H_A: \beta_i \neq0\\
-i=predictor\  variables
+\begin{aligned}
+H_0&: \beta_i = 0\\
+H_A&: \beta_i \neq0\\
+i&=predictor\  variables
+\end{aligned}
 $$
 
 $$
 \begin{aligned}
-H_0:\beta_1 =\beta_2 = \beta_i = 0 \\
-H_a:\mbox{at least one }\beta_i\mbox{ is not zero } \\
-i=x, y, z, ...[predictor\ variables] \\
-\alpha = 0.05  
-
+H_0&:\beta_1 =\beta_2 = \beta_i = 0 \\
+H_a&:\mbox{at least one }\beta_i\mbox{ is not zero } \\
+i&=x, y, z, ...[predictor\ variables] \\
+\alpha &= 0.05  
 \end{aligned}
 $$
 
-###Creating the full-model with the original DF with all data to check
+### Creating the full-model with the original DF with all data to check
+
 ```{r}
 colnames(goalies)
 full.goalies = lm(SavePct ~ factor(ShootsCatches_x) + HeightInches + WeightPounds + factor(Country) + factor(DraftCategory) + YSD + age + YIM + factor(Era) + StartPct + TOI + Shutouts_y + PenaltyMinutes, data = goalies)
@@ -279,7 +291,8 @@ summary(full.goalies)
 
 ```
 
-###Re-run the model with new df with gamesplayed >= 25
+### Re-run the model with new df with gamesplayed \>= 25
+
 ```{r}
 colnames(goalies_new)
 full.goalies_new = lm(SavePct ~ factor(ShootsCatches_x) + HeightInches + WeightPounds + factor(Country) + factor(DraftCategory) + YSD + age + YIM + factor(Era) + StartPct + TOI + Shutouts_y + PenaltyMinutes, data = goalies_new)
@@ -289,13 +302,15 @@ summary(full.goalies_new)
 
 ```
 
-###build best first order model based on pvalue > 0.05 variables
+### Build best first order model based on pvalue \> 0.05 variables
+
 ```{r}
 goalies.additive.only = lm(SavePct ~ factor(Era)+ Shutouts_y + PenaltyMinutes, data = goalies_new)
 summary(goalies.additive.only)
 ```
 
-###equation for first order "best" model - OLD
+### Equation for first order "best" model - OLD 
+
 $$
 \begin{aligned}
 \widehat{SVPCT}_i&=
@@ -307,13 +322,15 @@ $$
 \end{aligned}
 $$
 
-###rebuild 1st order model drop p > 0.05
+###rebuild 1st order model drop p \> 0.05
+
 ```{r}
 goalies.additive.only2 = lm(SavePct ~ factor(Era)+ Shutouts_y, data = goalies_new)
 summary(goalies.additive.only2)
 ```
 
-###equation for first order "best" model
+###equation for first order "best" model 
+
 $$
 \begin{aligned}
 \widehat{SVPCT}_i&=
@@ -374,23 +391,26 @@ summary(goalies.interact.final)
 coefficients(goalies.interact.final)
 ```
 
-###run the VIF test on the primary terms in the interaction model
+### Run the VIF test on the primary terms in the interaction model
+
 ```{r}
 ##VIF test
 goalies.maineffects = lm(SavePct ~ Shutouts_y + factor(Era) + factor(Country) + factor(DraftCategory) + YIM + WeightPounds + TOI, data = goalies_new)
 imcdiag(goalies.maineffects, method = "VIF")
 ```
-###No multicollinearity in the main predictor variables
 
+### No multicollinearity in the main predictor variables
 
-###test our model assumptions
+### Test our model assumptions
+
 ```{r}
 ggpairs(goalies.interact.final, lower = list(continuous = "smooth_loess", combo = "facethist", discrete = "facetbar", na = "na"))
 ```
-###No higher-order terms - test assumptions
 
+### No higher-order terms - test assumptions
 
-###Checking for conditions: 
+### Checking for conditions:
+
 ```{r}
 best.model <- goalies.interact.final
 
@@ -508,7 +528,9 @@ ggplot(data=best.model, aes(residuals(best.model))) + geom_histogram(breaks = se
 ggplot(best.model, aes(sample=residuals(best.model))) + stat_qq() + stat_qq_line()
 
 ```
-### Model Prediction test 
+
+### Model Prediction test
+
 ```{r}
 head(goalies_no_outliers, 100)
 
@@ -533,7 +555,8 @@ predict(goalies.interact.final.no_outliers, predict_data, interval="predict")  #
 
 ## Model prediction distribution visualizations generated from dataset entries
 
-### fits SavePct value to every entry, sorry for the Warning output 
+### fits SavePct value to every entry, sorry for the Warning output
+
 ```{r}
 fit <- list()
 output <- list()
@@ -553,20 +576,10 @@ for (i in seq_along(goalies_new$SavePct))
 ```
 
 ### visualize distributions
+
 ```{r}
 favstats(goalies_new$SavePct)
 favstats(goalies_new$SavePct.Calc)
 ggqqplot(goalies_new$SavePct.Calc, title="Normal Plot of Predicted SavePct", ylab="Predicted SavePct (%)")
 ggqqplot(goalies_new$SavePct, title="Normal Plot of Actual SavePct", ylab="Actual SavePct (%)")
 ```
-
-
-
-
-
-
-
-
-
-
-
